@@ -1,1 +1,264 @@
-<p>This is an index page</p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gamerev Games Files</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #181b24;
+    --border: #2a2f3d;
+    --text: #e6e8ee;
+    --muted: #8b92a5;
+    --accent: #e0334f;
+    --accent-hover: #ff4d68;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { margin: 0 0 4px; font-size: 1.8rem; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  #search {
+    width: 100%;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 1rem;
+  }
+  #search:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  #list {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+  }
+  details > summary {
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+    list-style: none;
+  }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary:hover { background: rgba(255,255,255,0.04); }
+  details > summary::before { content: "\25B8"; display: inline-block; width: 1.1em; color: var(--muted); }
+  details[open] > summary::before { content: "\25BE"; }
+  .inner { margin-left: 16px; border-left: 1px solid var(--border); padding-left: 6px; }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 10px;
+    border-radius: 6px;
+  }
+  .row:hover { background: rgba(255,255,255,0.04); }
+  .row .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .row .name:hover { color: var(--accent-hover); text-decoration: underline; }
+  .row .size { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+  .row .dl {
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-decoration: none;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .row .dl:hover { color: var(--text); border-color: var(--accent); }
+  .msg { padding: 16px; color: var(--muted); }
+  .err { color: #ff8a8a; }
+  footer { margin-top: 20px; color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Gamerev <span>Files</span></h1>
+  <p class="sub">Click a file to view it, or hit Download to save it.</p>
+  <input id="search" type="search" placeholder="Search files..." autocomplete="off">
+  <div id="list"><div class="msg">Loading files...</div></div>
+  <footer id="footer"></footer>
+</div>
+
+<script>
+// ====== EDIT THESE THREE LINES ======
+const OWNER  = "YOUR_GITHUB_USERNAME";
+const REPO   = "YOUR_REPO_NAME";
+const BRANCH = "main";
+// ====================================
+
+// Anything listed here is hidden. Exact file paths, or folder prefixes ending in "/".
+const HIDE = [
+  "CNAME",
+  "index.html",
+  ".nojekyll",
+  ".gitignore",
+  ".gitattributes",
+  "README.md",
+  ".github/"
+];
+
+const listEl = document.getElementById("list");
+const searchEl = document.getElementById("search");
+const footerEl = document.getElementById("footer");
+let TREE = null;
+
+function isHidden(path) {
+  return HIDE.some(h => h.endsWith("/") ? path.startsWith(h) : path === h);
+}
+
+function fmtSize(bytes) {
+  if (bytes == null) return "";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  return (bytes / 1024 / 1024 / 1024).toFixed(2) + " GB";
+}
+
+function fileIcon(name) {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  const map = {
+    png: "🖼️", jpg: "🖼️", jpeg: "🖼️", gif: "🖼️", webp: "🖼️", svg: "🖼️",
+    mp3: "🎵", wav: "🎵", ogg: "🎵", flac: "🎵",
+    mp4: "🎬", webm: "🎬", mov: "🎬",
+    zip: "📦", rar: "📦", "7z": "📦", tar: "📦", gz: "📦",
+    txt: "📄", md: "📄", pdf: "📕", json: "🧾", xml: "🧾", csv: "🧾",
+    cs: "💻", js: "💻", html: "💻", css: "💻", py: "💻",
+    exe: "⚙️", apk: "⚙️", unitypackage: "🎮"
+  };
+  return map[ext] || "📄";
+}
+
+function fileUrl(path) {
+  return "/" + path.split("/").map(encodeURIComponent).join("/");
+}
+
+function buildTree(items) {
+  const root = { dirs: {}, files: [] };
+  for (const item of items) {
+    const parts = item.path.split("/");
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      node.dirs[parts[i]] = node.dirs[parts[i]] || { dirs: {}, files: [] };
+      node = node.dirs[parts[i]];
+    }
+    node.files.push({ name: parts[parts.length - 1], path: item.path, size: item.size });
+  }
+  return root;
+}
+
+function makeRow(f) {
+  const row = document.createElement("div");
+  row.className = "row";
+
+  const link = document.createElement("a");
+  link.className = "name";
+  link.href = fileUrl(f.path);
+  link.textContent = fileIcon(f.name) + " " + f.name;
+  link.title = f.path;
+
+  const size = document.createElement("span");
+  size.className = "size";
+  size.textContent = fmtSize(f.size);
+
+  const dl = document.createElement("a");
+  dl.className = "dl";
+  dl.href = fileUrl(f.path);
+  dl.setAttribute("download", f.name);
+  dl.textContent = "Download";
+
+  row.append(link, size, dl);
+  return row;
+}
+
+function renderNode(node, filter) {
+  const frag = document.createDocumentFragment();
+
+  Object.keys(node.dirs)
+    .sort((a, b) => a.localeCompare(b))
+    .forEach(name => {
+      const childFrag = renderNode(node.dirs[name], filter);
+      if (childFrag.childNodes.length) {
+        const d = document.createElement("details");
+        if (filter) d.open = true;
+        const s = document.createElement("summary");
+        s.textContent = "📁 " + name;
+        const inner = document.createElement("div");
+        inner.className = "inner";
+        inner.appendChild(childFrag);
+        d.append(s, inner);
+        frag.appendChild(d);
+      }
+    });
+
+  node.files
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach(f => {
+      if (filter && !f.path.toLowerCase().includes(filter)) return;
+      frag.appendChild(makeRow(f));
+    });
+
+  return frag;
+}
+
+function render() {
+  const filter = searchEl.value.trim().toLowerCase();
+  const frag = renderNode(TREE, filter);
+  listEl.innerHTML = "";
+  if (frag.childNodes.length) {
+    listEl.appendChild(frag);
+  } else {
+    const m = document.createElement("div");
+    m.className = "msg";
+    m.textContent = filter ? "No files match your search." : "No files yet.";
+    listEl.appendChild(m);
+  }
+}
+
+async function load() {
+  const api = `https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1`;
+  try {
+    const res = await fetch(api, { headers: { Accept: "application/vnd.github+json" } });
+    if (res.status === 403) throw new Error("GitHub's rate limit was hit. Please try again in a bit.");
+    if (res.status === 404) throw new Error("Repo or branch not found. Check OWNER, REPO and BRANCH at the top of index.html.");
+    if (!res.ok) throw new Error("GitHub returned an error (" + res.status + ").");
+
+    const data = await res.json();
+    const files = data.tree.filter(t => t.type === "blob" && !isHidden(t.path));
+    TREE = buildTree(files);
+    render();
+
+    footerEl.textContent = files.length + (files.length === 1 ? " file" : " files") +
+      (data.truncated ? " (list truncated, repo is very large)" : "");
+  } catch (e) {
+    listEl.innerHTML = "";
+    const m = document.createElement("div");
+    m.className = "msg err";
+    m.textContent = e.message;
+    listEl.appendChild(m);
+  }
+}
+
+searchEl.addEventListener("input", () => { if (TREE) render(); });
+load();
+</script>
+</body>
+</html>
